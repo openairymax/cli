@@ -1,150 +1,171 @@
-# CLI — AgentRT 命令行工具
+**Language:** English | [简体中文](README_zh.md)
 
-**模块路径**: `sdk/cli/`
-**版本**: v0.1.1
+# Airymax CLI
 
-## 概述
+[![Version](https://img.shields.io/badge/version-0.1.1-5a6b7e)](https://atomgit.com/openairymax/cli)
+[![License](https://img.shields.io/badge/license-AGPL--3.0+Apache--2.0-4a90d9)](LICENSE)
+[![Rust](https://img.shields.io/badge/Rust-stable-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org)
 
-AgentRT CLI 是基于 Rust 开发的命令行工具，提供与 AgentRT 智能体运行时交互的终端接口。支持项目管理、智能体创建与运行、LLM 提供商管理、Prompt 模板管理、市场搜索安装、部署运维和数据库迁移等全生命周期操作。所有运行时命令通过 Gateway HTTP API 与 AgentRT 核心通信。
+> Official command-line interface for the [Airymax](https://atomgit.com/openairymax/airymaxhub) AI Agent Runtime Platform.
+> One of the leaf repositories aggregated by the [sdk](https://atomgit.com/openairymax/sdk) management repo.
+> Built on top of the Airymax Rust SDK (`agentrt-rs`).
 
-## 目录结构
+---
+
+## Overview
+
+The **Airymax CLI** (`agentrt`) is a Rust-built command-line tool for operating the Airymax runtime from the terminal. It covers the full agent lifecycle: project scaffolding, component creation, agent execution, configuration management, LLM provider management, prompt template management, marketplace search & install, deployment operations, and database migrations.
+
+Runtime commands talk to the Airymax Gateway over HTTP; the CLI internally drives the same double-layer SDK architecture (Cognition / Safety / Tool / Chat) used by the language SDKs, so the CLI is a first-class runtime tenant that exercises the same code paths an agent application would.
+
+## Double-Layer API Architecture (consumed)
+
+The CLI is a consumer of the Airymax Rust SDK rather than a provider of new resource clients. Its `run`, `llm`, `market`, and `deploy` subcommands translate user intent into calls against the four nested resource clients exposed by `AgentRTClient`:
+
+```
+agentrt <command>
+   └── AgentRTClient (from agentrt-rs)
+       ├── CognitionClient   # used by `agentrt run`
+       ├── SafetyClient      # used by policy / audit flows
+       ├── ToolClient        # used by tool invocation & market install
+       └── ChatClient        # used by interactive chat sessions
+```
+
+## Directory Structure
 
 ```
 cli/
 ├── src/
-│   ├── main.rs              # 入口与 CLI 路由
-│   ├── client.rs            # Gateway HTTP 客户端
-│   ├── templates.rs         # 项目模板生成
+│   ├── main.rs              # Entry point + CLI routing (clap)
+│   ├── client.rs            # Gateway HTTP client
+│   ├── templates.rs         # Project / component template generation
 │   └── commands/
-│       ├── mod.rs           # 命令模块导出
-│       ├── init.rs          # agentrt init — 项目初始化
-│       ├── create.rs        # agentrt create — 创建 agent/tool/plugin/prompt/skill
-│       ├── run.rs           # agentrt run — 运行智能体（交互/单次）
-│       ├── config_cmd.rs    # agentrt config — 配置管理
-│       ├── llm.rs           # agentrt llm — LLM 提供商管理
-│       ├── prompt.rs        # agentrt prompt — Prompt 模板管理
-│       ├── market.rs        # agentrt market — 市场搜索与安装
-│       ├── deploy.rs        # agentrt deploy — 部署与状态查询
-│       └── db.rs            # agentrt db — 数据库迁移管理
-├── Cargo.toml               # Rust 项目配置
-└── README.md                # 本文件
+│       ├── mod.rs           # Command module exports
+│       ├── init.rs          # agentrt init — project scaffolding
+│       ├── create.rs        # agentrt create — agent/tool/plugin/prompt/skill
+│       ├── run.rs           # agentrt run — run an agent (interactive / one-shot)
+│       ├── config_cmd.rs    # agentrt config — configuration management
+│       ├── llm.rs           # agentrt llm — LLM provider management
+│       ├── prompt.rs        # agentrt prompt — prompt template management
+│       ├── market.rs        # agentrt market — marketplace search & install
+│       ├── deploy.rs        # agentrt deploy — deployment & status
+│       └── db.rs            # agentrt db — database migration management
+├── Cargo.toml               # Crate manifest (agentrt-cli, binary: agentrt)
+└── README.md                # This file
 ```
 
-## 命令列表
+## Upstream & Downstream Dependencies
 
-| 命令 | 说明 | 需 Gateway |
-|------|------|:----------:|
-| `agentrt init <name>` | 初始化新的 AgentRT 项目 | ✗ |
-| `agentrt create agent\|tool\|plugin\|prompt\|skill <name>` | 创建组件模板 | ✗ |
-| `agentrt run [prompt]` | 运行智能体（交互/单次） | ✓ |
-| `agentrt config show\|set\|validate\|reload` | 配置管理 | △ |
-| `agentrt llm list\|test\|cost` | LLM 提供商管理 | ✓ |
-| `agentrt prompt list\|show\|tune\|ab-test` | Prompt 模板管理 | ✗ |
-| `agentrt market search\|install\|publish` | 市场搜索与安装 | ✓ |
-| `agentrt deploy deploy\|status\|logs` | 部署与运维 | ✓ |
-| `agentrt db status\|migrate\|rollback\|new` | 数据库迁移管理 | ✗ |
-| `agentrt completion <shell>` | 生成 Shell 补全脚本 | ✗ |
+### Upstream
 
-## 核心功能
+- **Airymax Rust SDK (`agentrt-rs`)**: Provides the typed `AgentRTClient` and the four nested resource clients used to talk to the runtime.
+- **Runtime**: Connects to a running Airymax / AgentRT instance (`gateway_d` / Gateway HTTP API) over HTTP and JSON-RPC 2.0.
+- **Configuration**: Resolved from CLI flags, then environment variables (`AGENTRT_ENDPOINT`, `AGENTRT_API_KEY`), then a `http://127.0.0.1:18789` default.
 
-### 项目初始化
+### Downstream
+
+- **Developers / operators**: The primary human-facing surface for driving the runtime from a shell, CI job, or ops runbook.
+- **Shell completion**: Generates completion scripts for bash/zsh/fish/etc.
+
+## Command Reference
+
+| Command | Description | Needs Gateway |
+|---------|-------------|:-------------:|
+| `agentrt init <name>` | Initialize a new Airymax project | ✗ |
+| `agentrt create agent\|tool\|plugin\|prompt\|skill <name>` | Scaffold a component | ✗ |
+| `agentrt run [prompt]` | Run an agent (interactive / one-shot) | ✓ |
+| `agentrt config show\|set\|validate\|reload` | Configuration management | △ |
+| `agentrt llm list\|test\|cost` | LLM provider management | ✓ |
+| `agentrt prompt list\|show\|tune\|ab-test` | Prompt template management | ✗ |
+| `agentrt market search\|install\|publish` | Marketplace search & install | ✓ |
+| `agentrt deploy deploy\|status\|logs` | Deployment & operations | ✓ |
+| `agentrt db status\|migrate\|rollback\|new` | Database migration management | ✗ |
+| `agentrt completion <shell>` | Generate shell completion | ✗ |
+
+## Installation
+
+### From source
 
 ```bash
-# 创建新项目
+cd cli
+cargo build --release
+# Binary: ./target/release/agentrt
+```
+
+### Shell completion
+
+```bash
+source <(agentrt completion bash)
+```
+
+**Requirements:** Rust edition 2021 (stable toolchain). Runtime dependencies: `clap` 4.5 (CLI framework), `reqwest` 0.12 (HTTP), `tokio` 1 (async runtime), `serde` / `serde_json` / `serde_yaml` (serialization), `thiserror` / `anyhow` (errors), `colored` / `indicatif` (terminal output), `chrono`, `dirs`, `url`, `urlencoding`, `clap_complete`.
+
+## Usage
+
+### Project scaffolding
+
+```bash
 agentrt init my-agent-project
 cd my-agent-project
 
-# 创建智能体
 agentrt create agent my-agent
-
-# 创建工具/插件
 agentrt create tool web-scraper
 agentrt create plugin logging-plugin
 ```
 
-### 运行智能体
+### Run an agent
 
 ```bash
-# 交互模式
+# Interactive mode
 agentrt run
 
-# 单次执行
-agentrt run "分析这份销售数据"
+# One-shot
+agentrt run "Analyze this sales data"
 
-# 指定智能体配置和模型
+# With explicit agent config and model
 agentrt run --agent-file agents/custom.agent.yaml --model gpt-4
 ```
 
-### 配置管理
+### Configuration management
 
 ```bash
-# 查看当前配置
 agentrt config show
-
-# 设置 LLM API Key
 agentrt config set llm.providers.openai.api_key sk-xxxx
-
-# 验证配置
 agentrt config validate
-
-# 重新加载 Gateway 配置
 agentrt config reload
 ```
 
-### Prompt 模板管理
+### Prompt templates
 
 ```bash
-# 列出所有模板
 agentrt prompt list
-
-# 查看模板详情
 agentrt prompt show intent_classify
-
-# 调优模板
 agentrt prompt tune intent_classify --dataset ./data.jsonl
-
-# A/B 测试
 agentrt prompt ab-test intent_classify --baseline v1 --candidate v2
 ```
 
-### 部署运维
+### Deployment & operations
 
 ```bash
-# 部署到 Docker
 agentrt deploy deploy --target docker
-
-# 查看运行时状态
 agentrt deploy status
-
-# 查看运行时日志
 agentrt deploy logs --lines 100
 ```
 
-## 依赖关系
-
-| 类别 | 依赖 |
-|------|------|
-| CLI 框架 | clap 4.5 (derive + env), clap_complete 4.5 |
-| HTTP 客户端 | reqwest 0.12 (json + rustls-tls + stream + socks) |
-| 异步运行时 | tokio 1 (full) |
-| 序列化 | serde 1.0, serde_json, serde_yaml 0.9 |
-| 错误处理 | thiserror 2.0, anyhow 1.0 |
-| 终端输出 | colored 2, indicatif 0.17 |
-| 工具 | chrono 0.4, dirs 5.0, url 2.5, urlencoding 2.1 |
-
-## 构建说明
+## Build & Test
 
 ```bash
-# 构建
 cargo build --release
-
-# 运行
+cargo test
 ./target/release/agentrt --help
-
-# 生成 Shell 补全
-source <(agentrt completion bash)
 ```
 
----
+## Branch Strategy
 
-© 2026 SPHARX Ltd. All Rights Reserved.
+This leaf repository is developed on **`feature/official-hubs-01`**. The aggregating `sdk` management repo stays on `main`.
+
+## License
+
+Dual-licensed under **AGPL v3 + Apache 2.0** (SPDX: `AGPL-3.0-or-later OR Apache-2.0`). See [LICENSE](LICENSE) for the full text.
+
+Copyright (c) 2025-2026 **SPHARX Ltd.** All Rights Reserved.
