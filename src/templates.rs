@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025-2026 SPHARX Ltd.
+// SPDX-License-Identifier: AGPL-3.0-or-later OR Apache-2.0
+
 // Copyright (c) 2026 SPHARX Ltd. All Rights Reserved.
 //
 // Template content for CLI scaffolding commands.
@@ -148,7 +151,7 @@ Hooks intercept agent lifecycle events.
 This example logs all tool calls to the console.
 """
 
-from ecosystem.hooks import BaseHook, HookContext, HookResult
+from agentrt.hooks import BaseHook, HookContext, HookResult
 
 
 class CustomAuditHook(BaseHook):
