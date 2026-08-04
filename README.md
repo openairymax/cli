@@ -8,7 +8,7 @@
 
 > Official command-line interface for the [Airymax](https://atomgit.com/openairymax/airymaxhub) AI Agent Runtime Platform.
 > One of the leaf repositories aggregated by the [sdk](https://atomgit.com/openairymax/sdk) management repo.
-> Built on top of the Airymax Rust SDK (`agentrt-rs`).
+> Standalone Rust binary — talks to the Airymax Gateway over HTTP and does not link the language SDKs (no `agentrt-rs` dependency).
 
 ---
 
@@ -16,19 +16,19 @@
 
 The **Airymax CLI** (`agentrt`) is a Rust-built command-line tool for operating the Airymax runtime from the terminal. It covers the full agent lifecycle: project scaffolding, component creation, agent execution, configuration management, LLM provider management, prompt template management, marketplace search & install, deployment operations, and database migrations.
 
-Runtime commands talk to the Airymax Gateway over HTTP; the CLI internally drives the same double-layer SDK architecture (Cognition / Safety / Tool / Chat) used by the language SDKs, so the CLI is a first-class runtime tenant that exercises the same code paths an agent application would.
+Runtime commands talk to the Airymax Gateway over HTTP (JSON-RPC 2.0) using the CLI's own `reqwest` client. The CLI is a standalone runtime tenant — it does not depend on or link the language SDKs (`agentrt-rs` / `agentrt-sdk-go` / etc.).
 
-## Double-Layer API Architecture (consumed)
+## Runtime Communication
 
-The CLI is a consumer of the Airymax Rust SDK rather than a provider of new resource clients. Its `run`, `llm`, `market`, and `deploy` subcommands translate user intent into calls against the four nested resource clients exposed by `AgentRTClient`:
+The CLI talks to the runtime over the Gateway HTTP API (JSON-RPC 2.0) directly from its own HTTP client (`src/client.rs`, built on `reqwest`). It does not wrap or consume the language SDKs: there is no `agentrt-rs` dependency in `Cargo.toml`.
 
 ```
 agentrt <command>
-   └── AgentRTClient (from agentrt-rs)
-       ├── CognitionClient   # used by `agentrt run`
-       ├── SafetyClient      # used by policy / audit flows
-       ├── ToolClient        # used by tool invocation & market install
-       └── ChatClient        # used by interactive chat sessions
+   └── src/client.rs — reqwest HTTP client
+       ├── run      → task submission / agent execution
+       ├── llm      → LLM provider management
+       ├── market   → marketplace search & install
+       └── deploy   → deployment & status
 ```
 
 ## Directory Structure
@@ -58,8 +58,7 @@ cli/
 
 ### Upstream
 
-- **Airymax Rust SDK (`agentrt-rs`)**: Provides the typed `AgentRTClient` and the four nested resource clients used to talk to the runtime.
-- **Runtime**: Connects to a running Airymax / AgentRT instance (`gateway_d` / Gateway HTTP API) over HTTP and JSON-RPC 2.0.
+- **Runtime**: Connects to a running Airymax / AgentRT instance (`gateway_d` / Gateway HTTP API) over HTTP and JSON-RPC 2.0. The CLI uses `reqwest` directly and has **no `agentrt-rs` dependency** (see `Cargo.toml`).
 - **Configuration**: Resolved from CLI flags, then environment variables (`AGENTRT_ENDPOINT`, `AGENTRT_API_KEY`), then a `http://127.0.0.1:18789` default.
 
 ### Downstream

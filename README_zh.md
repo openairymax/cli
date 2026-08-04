@@ -8,7 +8,7 @@
 
 > [Airymax](https://atomgit.com/openairymax/airymaxhub) AI 智能体运行时平台的官方命令行工具。
 > [sdk](https://atomgit.com/openairymax/sdk) 管理仓聚合的叶子仓之一。
-> 基于 Airymax Rust SDK（`agentrt-rs`）构建。
+> 独立 Rust 二进制 —— 通过 HTTP 与 Airymax Gateway 通信，不链接各语言 SDK（无 `agentrt-rs` 依赖）。
 
 ---
 
@@ -16,19 +16,19 @@
 
 **Airymax CLI**（`agentrt`）是用 Rust 构建的命令行工具，用于在终端中操作 Airymax 运行时。它覆盖 Agent 全生命周期：项目脚手架、组件创建、Agent 执行、配置管理、LLM 提供商管理、Prompt 模板管理、市场搜索与安装、部署运维和数据库迁移。
 
-运行时相关命令通过 HTTP 与 Airymax Gateway 通信；CLI 内部驱动与各语言 SDK 相同的双层 SDK 架构（Cognition / Safety / Tool / Chat），因此 CLI 是一等运行时租户，与 Agent 应用走相同的代码路径。
+运行时相关命令通过 HTTP（JSON-RPC 2.0）与 Airymax Gateway 通信，使用 CLI 自身的 `reqwest` 客户端。CLI 是独立运行时租户 —— 不依赖、也不链接各语言 SDK（`agentrt-rs` / `agentrt-sdk-go` 等）。
 
-## 消费的双层 API 架构
+## 运行时通信
 
-CLI 是 Airymax Rust SDK 的消费者，而非新增资源客户端的提供者。其 `run`、`llm`、`market`、`deploy` 等子命令将用户意图转换为对 `AgentRTClient` 暴露的四个内嵌资源客户端的调用：
+CLI 通过 Gateway HTTP API（JSON-RPC 2.0）与运行时通信，直接使用自己的 HTTP 客户端（`src/client.rs`，基于 `reqwest`）。它不包装、也不消费语言 SDK：`Cargo.toml` 中没有 `agentrt-rs` 依赖。
 
 ```
 agentrt <command>
-   └── AgentRTClient（来自 agentrt-rs）
-       ├── CognitionClient   # 由 `agentrt run` 使用
-       ├── SafetyClient      # 由策略 / 审计流程使用
-       ├── ToolClient        # 由工具调用与市场安装使用
-       └── ChatClient        # 由交互式对话会话使用
+   └── src/client.rs — reqwest HTTP 客户端
+       ├── run      → 任务提交 / 智能体执行
+       ├── llm      → LLM 提供商管理
+       ├── market   → 市场搜索与安装
+       └── deploy   → 部署与状态查询
 ```
 
 ## 目录结构
@@ -58,8 +58,7 @@ cli/
 
 ### 上游
 
-- **Airymax Rust SDK（`agentrt-rs`）**：提供与运行时通信的类型化 `AgentRTClient` 与四个内嵌资源客户端。
-- **运行时**：通过 HTTP 和 JSON-RPC 2.0 连接到运行中的 Airymax / AgentRT 实例（`gateway_d` / Gateway HTTP API）。
+- **运行时**：通过 HTTP 和 JSON-RPC 2.0 连接到运行中的 Airymax / AgentRT 实例（`gateway_d` / Gateway HTTP API）。CLI 直接使用 `reqwest`，**无 `agentrt-rs` 依赖**（见 `Cargo.toml`）。
 - **配置**：依次从 CLI 标志、环境变量（`AGENTRT_ENDPOINT`、`AGENTRT_API_KEY`）、默认值 `http://127.0.0.1:18789` 解析。
 
 ### 下游
