@@ -91,7 +91,29 @@ impl GatewayClient {
 
     /// Check if the gateway is reachable.
     pub async fn health_check(&self) -> Result<HealthResponse> {
-        self.get("/api/v1/health").await
+        self.get("/health").await
+    }
+
+    /// LLM 模型清单：gateway JSON-RPC `llm.list_models` → llm_d registry
+    /// 全量模型 + 默认模型（供模型自由配置查看）。
+    pub async fn llm_list_models(&self) -> Result<LlmModelList> {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "llm.list_models",
+            "params": {},
+        });
+        let resp: serde_json::Value = self.post("/", &request).await?;
+        if let Some(err) = resp.get("error") {
+            anyhow::bail!(
+                "{}",
+                err.get("message")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("unknown error")
+            );
+        }
+        let result = resp.get("result").context("missing result in llm.list_models")?;
+        serde_json::from_value(result.clone()).context("failed to parse model list")
     }
 }
 
@@ -121,11 +143,25 @@ pub struct DaemonStatus {
     pub name: String,
     pub status: String,
     pub pid: Option<u32>,
-}#[derive(Debug, Deserialize)]
-pub struct LlmProvider {
+}
+
+/// llm.list_models 返回的单个模型条目
+#[derive(Debug, Deserialize)]
+pub struct LlmModelEntry {
     pub name: String,
-    pub models: Vec<String>,
-    pub status: String,
+    pub provider: String,
+    #[serde(default)]
+    pub default: bool,
+}
+
+/// llm.list_models 完整返回（模型清单 + 默认模型/提供商）
+#[derive(Debug, Deserialize)]
+pub struct LlmModelList {
+    pub models: Vec<LlmModelEntry>,
+    #[serde(default)]
+    pub default_model: String,
+    #[serde(default)]
+    pub default_provider: String,
 }
 
 #[derive(Debug, Serialize)]

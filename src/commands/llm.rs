@@ -10,34 +10,50 @@
 use anyhow::Result;
 use colored::Colorize;
 
-use crate::client::{CostResponse, GatewayClient, LlmProvider, LlmTestRequest};
+use crate::client::{CostResponse, GatewayClient, LlmTestRequest};
 
-/// List configured LLM providers.
+/// List configured LLM models（经 gateway llm.list_models 转发 llm_d registry）。
 pub async fn list(gateway_url: &str) -> Result<()> {
     let client = GatewayClient::new(gateway_url)?;
 
-    let providers: Vec<LlmProvider> = client.get("/api/v1/llm/providers").await?;
+    let list = client.llm_list_models().await?;
 
-    if providers.is_empty() {
-        println!("{} No LLM providers configured.", "ℹ".yellow());
-        println!("  Add providers to your agentrt.yaml under 'llm.providers'.");
+    if list.models.is_empty() {
+        println!("{} 未配置任何模型。", "ℹ".yellow());
+        println!("  编辑 $AIRY_HOME/config/model.yaml 或仓库 SSoT（ecosystem/manager/model/model.yaml）。");
         return Ok(());
     }
 
-    println!("{} LLM Providers:", "🤖".blue().bold());
-    println!();
-    println!("  {:<20} {:<15} Models", "Provider", "Status");
-    println!("  {:-<20} {:-<15} {:-<30}", "", "", "");
-
-    for p in &providers {
-        let status_icon = if p.status == "connected" { "✓".green() } else { "✗".red() };
-        println!(
-            "  {:<20} {:<15} {}",
-            p.name,
-            format!("{} {}", status_icon, p.status),
-            p.models.join(", ")
-        );
+    println!("{} LLM 模型清单（{} 个）：", "🤖".blue().bold(), list.models.len());
+    if !list.default_model.is_empty() {
+        let prov = if list.default_provider.is_empty() {
+            String::new()
+        } else {
+            format!(" [{}]", list.default_provider)
+        };
+        println!("  默认模型: {}{}", list.default_model.yellow().bold(), prov.green());
     }
+    println!();
+
+    let mut by_provider: std::collections::BTreeMap<&str, Vec<&crate::client::LlmModelEntry>> =
+        std::collections::BTreeMap::new();
+    for m in &list.models {
+        by_provider.entry(m.provider.as_str()).or_default().push(m);
+    }
+    for (provider, models) in &by_provider {
+        println!("  {}:", provider.cyan().bold());
+        for m in models {
+            let star = if m.default { " ★" } else { "" };
+            println!("    {}{}", m.name, star.yellow());
+        }
+        println!();
+    }
+
+    println!(
+        "  切换默认模型：编辑 {} 的 global 段（default_model / default_provider）",
+        "$AIRY_HOME/config/model.yaml".yellow()
+    );
+    println!("  或在 agentrt run --model <模型名> 临时指定。");
 
     Ok(())
 }
