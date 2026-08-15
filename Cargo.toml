@@ -1,6 +1,6 @@
 [package]
 name = "agentrt-cli"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "AgentRT CLI - Command-line interface for AgentRT intelligent agent runtime"
 license = "AGPL-3.0-or-later OR Apache-2.0"
