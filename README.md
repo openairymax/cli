@@ -2,7 +2,7 @@
 
 # Airymax CLI
 
-[![Version](https://img.shields.io/badge/version-0.1.1-5a6b7e)](https://atomgit.com/openairymax/cli)
+[![Version](https://img.shields.io/badge/version-0.1.5-5a6b7e)](https://atomgit.com/openairymax/cli)
 [![License](https://img.shields.io/badge/license-AGPL--3.0+Apache--2.0-4a90d9)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-stable-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org)
 
@@ -59,7 +59,7 @@ cli/
 ### Upstream
 
 - **Runtime**: Connects to a running Airymax / AgentRT instance (`gateway_d` / Gateway HTTP API) over HTTP and JSON-RPC 2.0. The CLI uses `reqwest` directly and has **no `agentrt-rs` dependency** (see `Cargo.toml`).
-- **Configuration**: Resolved from CLI flags, then environment variables (`AGENTRT_ENDPOINT`, `AGENTRT_API_KEY`), then a `http://127.0.0.1:18789` default.
+- **Configuration**: Resolved from CLI flags, then environment variables (`AGENTRT_GATEWAY_URL`, `AGENTRT_API_KEY`), then a `http://127.0.0.1:8080` default.
 
 ### Downstream
 
