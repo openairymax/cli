@@ -6,7 +6,13 @@
 [![License](https://img.shields.io/badge/license-AGPL--3.0+Apache--2.0-4a90d9)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-stable-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org)
 
-> [Airymax](https://atomgit.com/openairymax/airymaxhub) AI 智能体运行时平台的官方命令行工具。
+> **状态（CLI SSoT 边界声明，0.1.6 收敛）**: 本 CLI 为 **SDK 层独立实验客户端**
+> （Rust），面向开发者从终端直连 Gateway HTTP API 操作运行时。**官方发布 CLI
+> （随 AgentRT 制品分发）为 `airy_cli`（C 实现，agentrt 底座仓）**；本仓库二进制
+> `agentrt` 不进发布制品、不参与一键安装链路，仅供社区开发者本地实验与二次开发。
+> 两者功能重叠时以 `airy_cli` 为准；本仓库演进方向为渐进替代 `airy_cli`，替换
+> 完成前不承诺命令级兼容。
+>
 > [sdk](https://atomgit.com/openairymax/sdk) 管理仓聚合的叶子仓之一。
 > 独立 Rust 二进制 —— 通过 HTTP 与 Airymax Gateway 通信，不链接各语言 SDK（无 `agentrt-rs` 依赖）。
 
