@@ -2,11 +2,11 @@
 
 # Airymax CLI
 
-[![Version](https://img.shields.io/badge/version-0.1.9-5a6b7e)](https://atomgit.com/openairymax/cli)
+[![Version](https://img.shields.io/badge/version-0.1.8-5a6b7e)](https://atomgit.com/openairymax/cli)
 [![License](https://img.shields.io/badge/license-AGPL--3.0+Apache--2.0-4a90d9)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-stable-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org)
 
-> **状态（0.1.9）**: 开发者运维命令行工具 —— 覆盖项目脚手架、组件创建、配置管理、
+> **状态（0.1.8）**：开发者运维命令行工具 —— 覆盖项目脚手架、组件创建、配置管理、
 > 市场搜索与安装、部署运维等开发者工作流。经 Gateway（HTTP / JSON-RPC 2.0）
 > 调用运行时服务，是独立的运行时租户。
 >
@@ -19,7 +19,7 @@
 
 **Airymax CLI**（`agentrt`）是用 Rust 构建的命令行工具，用于在终端中操作 Airymax 运行时。它覆盖 Agent 全生命周期：项目脚手架、组件创建、Agent 执行、配置管理、LLM 提供商管理、Prompt 模板管理、市场搜索与安装、部署运维和数据库迁移。
 
-运行时相关命令通过 HTTP（JSON-RPC 2.0）与 Airymax Gateway 通信，使用 CLI 自身的 `reqwest` 客户端。CLI 是独立运行时租户 —— 不依赖、也不链接各语言 SDK（`agentrt-rs` / `agentrt-sdk-go` 等）。
+运行时相关命令通过 HTTP（JSON-RPC 2.0）与 Airymax Gateway 通信，使用 CLI 自身的 `reqwest` 客户端。CLI 是独立运行时租户 —— 不依赖、也不链接各语言 SDK。
 
 ## 运行时通信
 
@@ -57,17 +57,23 @@ cli/
 └── README.md                # 本文件
 ```
 
-## 上下游依赖
+## 前置条件
 
-### 上游
+大部分命令都是运行中 AgentRT 运行时的客户端，请先安装运行时：
 
-- **运行时**：通过 HTTP 和 JSON-RPC 2.0 连接到运行中的 Airymax / AgentRT 实例（`gateway_d` / Gateway HTTP API）。CLI 直接使用 `reqwest`，**无 `agentrt-rs` 依赖**（见 `Cargo.toml`）。
-- **配置**：依次从 CLI 标志、环境变量（`AGENTRT_ENDPOINT`、`AGENTRT_API_KEY`）、默认值 `http://127.0.0.1:18789` 解析。
+```bash
+curl -fsSL "https://api.atomgit.com/api/v5/repos/openairymax/agentrt/contents/scripts/install.sh?ref=main" | python3 -c 'import json,sys,base64;sys.stdout.buffer.write(base64.b64decode(json.load(sys.stdin)["content"]))' | bash
+```
 
-### 下游
+（兼容入口 `https://atomgit.com/openairymax/agentrt/releases/download/latest/install.sh` 也可用。）然后启动网关，例如 `airymaxrt start`。
 
-- **开发者 / 运维人员**：从 Shell、CI 任务或运维手册驱动运行时的主要人机界面。
-- **Shell 补全**：为 bash/zsh/fish 等生成补全脚本。
+### 网关地址
+
+网关地址按以下顺序解析：
+
+1. `--gateway-url <url>` 命令行参数；
+2. `AGENTRT_GATEWAY_URL` 环境变量；
+3. 内置默认值 `http://localhost:8080`。
 
 ## 命令一览
 
@@ -84,6 +90,8 @@ cli/
 | `agentrt db status\|migrate\|rollback\|new` | 数据库迁移管理 | ✗ |
 | `agentrt completion <shell>` | 生成 Shell 补全脚本 | ✗ |
 
+△ 标记 `config` 命令组：仅 `config reload` 作用于运行中的网关，其余子命令（`show` / `set` / `validate`）在本地配置上操作。
+
 ## 安装
 
 ### 从源码构建
@@ -94,13 +102,19 @@ cargo build --release
 # 二进制：./target/release/agentrt
 ```
 
+也可以安装到 cargo bin 目录：
+
+```bash
+cargo install --path .
+```
+
 ### Shell 补全
 
 ```bash
 source <(agentrt completion bash)
 ```
 
-**环境要求：** Rust edition 2021（stable 工具链）。运行时依赖：`clap` 4.5（CLI 框架）、`reqwest` 0.12（HTTP）、`tokio` 1（异步运行时）、`serde` / `serde_json` / `serde_yaml`（序列化）、`thiserror` / `anyhow`（错误）、`colored` / `indicatif`（终端输出）、`chrono`、`dirs`、`url`、`urlencoding`、`clap_complete`。
+**环境要求：** Rust edition 2021（stable 工具链）。运行时依赖：`clap` 4.5（CLI 框架）、`reqwest` 0.12（HTTP）、`tokio` 1（异步运行时）、`serde` / `serde_json` / `serde_yaml`（序列化）、`thiserror` / `anyhow`（错误）、`colored` / `indicatif`（终端输出）、`chrono`、`dirs`、`tempfile`、`url`、`urlencoding`、`clap_complete`。
 
 ## 使用说明
 
@@ -127,6 +141,8 @@ agentrt run "分析这份销售数据"
 # 指定智能体配置和模型
 agentrt run --agent-file agents/custom.agent.yaml --model gpt-4
 ```
+
+`--agent-file` 默认值为 `agents/main.agent.yaml`。
 
 ### 配置管理
 
@@ -161,10 +177,6 @@ cargo build --release
 cargo test
 ./target/release/agentrt --help
 ```
-
-## 分支策略
-
-本叶子仓在 **`develop/hubs-01`** 分支上开发，`main` 为发布快照。聚合管理仓 `sdk` 在 `main` 上直接开发。
 
 ## 许可证
 
