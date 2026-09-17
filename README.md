@@ -1,183 +1,86 @@
 **Language:** English | [简体中文](README_zh.md)
 
-# Airymax CLI
+# Airymax Console
 
-[![Version](https://img.shields.io/badge/version-0.1.8-5a6b7e)](https://atomgit.com/openairymax/cli)
+[![Version](https://img.shields.io/badge/version-0.1.16-5a6b7e)](https://atomgit.com/openairymax/console)
 [![License](https://img.shields.io/badge/license-AGPL--3.0+Apache--2.0-4a90d9)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-stable-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org)
 
-> **Status (0.1.8)**: developer-oriented operations CLI — covering project
-> scaffolding, component creation, configuration management, marketplace search
-> & install, and deployment & operations. It calls runtime services through the
-> Gateway (HTTP / JSON-RPC 2.0) as an independent runtime tenant.
+> **Status (0.1.16)**: the user-facing console library of the Airymax runtime —
+> command surface implementations plus the gateway protocol client.
 >
 > One of the leaf repositories aggregated by the [sdk](https://atomgit.com/openairymax/sdk) management repo.
-> Standalone Rust binary — talks to the Airymax Gateway over HTTP and does not link the language SDKs (no `agentrt-rs` dependency).
 
 ---
 
 ## Overview
 
-The **Airymax CLI** (`agentrt`) is a Rust-built command-line tool for operating the Airymax runtime from the terminal. It covers the full agent lifecycle: project scaffolding, component creation, agent execution, configuration management, LLM provider management, prompt template management, marketplace search & install, deployment operations, and database migrations.
+`agentrt-console` is a Rust library crate. It carries two responsibilities:
 
-Runtime commands talk to the Airymax Gateway over HTTP (JSON-RPC 2.0) using the CLI's own `reqwest` client. The CLI is a standalone runtime tenant — it does not depend on or link the language SDKs.
+- **Command surface** — project scaffolding, component creation, agent execution,
+  configuration management, LLM provider management, prompt template management,
+  marketplace search & install, runtime status, and database migrations.
+- **Gateway client** — JSON-RPC 2.0 over HTTP for non-streaming calls, with
+  streaming runs delegated to the `agentrt-rs` protocol layer, so that transport,
+  frame decoding, tool tracking and run termination share one implementation.
 
-## Runtime Communication
+The crate defines no binary. Command-line entry, argument parsing and screen
+rendering belong to the console front ends, not to this repository.
 
-The CLI talks to the runtime over the Gateway HTTP API (JSON-RPC 2.0) directly from its own HTTP client (`src/client.rs`, built on `reqwest`). It does not wrap or consume the language SDKs: there is no `agentrt-rs` dependency in `Cargo.toml`.
+## Gateway
 
-```
-agentrt <command>
-   └── src/client.rs — reqwest HTTP client
-       ├── run      → task submission / agent execution
-       ├── llm      → LLM provider management
-       ├── market   → marketplace search & install
-       └── deploy   → deployment & status
-```
+Gateway calls take an explicit base URL from the caller. Non-streaming requests
+are sent as JSON-RPC 2.0 messages over HTTP POST; streaming runs are consumed
+through the `agentrt-rs` event stream.
 
 ## Directory Structure
 
 ```
-cli/
+console/
 ├── src/
-│   ├── main.rs              # Entry point + CLI routing (clap)
-│   ├── client.rs            # Gateway HTTP client
-│   ├── templates.rs         # Project / component template generation
+│   ├── lib.rs               # Crate root
+│   ├── client.rs            # Gateway protocol client
+│   ├── templates.rs         # Project / component template content
 │   └── commands/
 │       ├── mod.rs           # Command module exports
-│       ├── init.rs          # agentrt init — project scaffolding
-│       ├── create.rs        # agentrt create — agent/tool/plugin/prompt/skill
-│       ├── run.rs           # agentrt run — run an agent (interactive / one-shot)
-│       ├── config_cmd.rs    # agentrt config — configuration management
-│       ├── llm.rs           # agentrt llm — LLM provider management
-│       ├── prompt.rs        # agentrt prompt — prompt template management
-│       ├── market.rs        # agentrt market — marketplace search & install
-│       ├── deploy.rs        # agentrt deploy — deployment & status
-│       └── db.rs            # agentrt db — database migration management
-├── Cargo.toml               # Crate manifest (agentrt-cli, binary: agentrt)
-└── README.md                # This file
+│       ├── init.rs          # project scaffolding
+│       ├── create.rs        # agent / tool / plugin / prompt / skill
+│       ├── run.rs           # agent execution (interactive / one-shot)
+│       ├── config_cmd.rs    # configuration management
+│       ├── llm.rs           # LLM provider management
+│       ├── prompt.rs        # prompt template management
+│       ├── market.rs        # marketplace search & install
+│       ├── deploy.rs        # runtime status
+│       └── db.rs            # database migrations
+├── Cargo.toml               # crate manifest (agentrt-console, library)
+└── README.md                # this file
 ```
 
-## Prerequisites
+## Command Surface
 
-Most commands are clients of a running AgentRT runtime. Install the runtime first:
-
-```bash
-curl -fsSL "https://api.atomgit.com/api/v5/repos/openairymax/agentrt/contents/scripts/install.sh?ref=main" | python3 -c 'import json,sys,base64;sys.stdout.buffer.write(base64.b64decode(json.load(sys.stdin)["content"]))' | bash
-```
-
-(A compatibility entry `https://atomgit.com/openairymax/agentrt/releases/download/latest/install.sh` is also available.) Then start the gateway, e.g. `airymaxrt start`.
-
-### Gateway Endpoint
-
-The gateway address is resolved in this order:
-
-1. `--gateway-url <url>` command-line flag;
-2. `AGENTRT_GATEWAY_URL` environment variable;
-3. built-in default `http://localhost:8080`.
-
-## Command Reference
-
-| Command | Description | Needs Gateway |
-|---------|-------------|:-------------:|
-| `agentrt init <name>` | Initialize a new Airymax project | ✗ |
-| `agentrt create agent\|tool\|plugin\|prompt\|skill <name>` | Scaffold a component | ✗ |
-| `agentrt run [prompt]` | Run an agent (interactive / one-shot) | ✓ |
-| `agentrt config show\|set\|validate\|reload` | Configuration management | △ |
-| `agentrt llm list\|test\|cost` | LLM provider management | ✓ |
-| `agentrt prompt list\|show\|tune\|ab-test` | Prompt template management | ✗ |
-| `agentrt market search\|install\|publish` | Marketplace search & install | ✓ |
-| `agentrt deploy deploy\|status\|logs` | Deployment & operations | ✓ |
-| `agentrt db status\|migrate\|rollback\|new` | Database migration management | ✗ |
-| `agentrt completion <shell>` | Generate shell completion | ✗ |
-
-△ marks the `config` group: only `config reload` acts on a running gateway — the other subcommands (`show` / `set` / `validate`) work on local configuration.
-
-## Installation
-
-### From source
-
-```bash
-cd cli
-cargo build --release
-# Binary: ./target/release/agentrt
-```
-
-Or install it into your cargo bin path:
-
-```bash
-cargo install --path .
-```
-
-### Shell completion
-
-```bash
-source <(agentrt completion bash)
-```
-
-**Requirements:** Rust edition 2021 (stable toolchain). Runtime dependencies: `clap` 4.5 (CLI framework), `reqwest` 0.12 (HTTP), `tokio` 1 (async runtime), `serde` / `serde_json` / `serde_yaml` (serialization), `thiserror` / `anyhow` (errors), `colored` / `indicatif` (terminal output), `chrono`, `dirs`, `tempfile`, `url`, `urlencoding`, `clap_complete`.
-
-## Usage
-
-### Project scaffolding
-
-```bash
-agentrt init my-agent-project
-cd my-agent-project
-
-agentrt create agent my-agent
-agentrt create tool web-scraper
-agentrt create plugin logging-plugin
-```
-
-### Run an agent
-
-```bash
-# Interactive mode
-agentrt run
-
-# One-shot
-agentrt run "Analyze this sales data"
-
-# With explicit agent config and model
-agentrt run --agent-file agents/custom.agent.yaml --model gpt-4
-```
-
-`--agent-file` defaults to `agents/main.agent.yaml`.
-
-### Configuration management
-
-```bash
-agentrt config show
-agentrt config set llm.providers.openai.api_key sk-xxxx
-agentrt config validate
-agentrt config reload
-```
-
-### Prompt templates
-
-```bash
-agentrt prompt list
-agentrt prompt show intent_classify
-agentrt prompt tune intent_classify --dataset ./data.jsonl
-agentrt prompt ab-test intent_classify --baseline v1 --candidate v2
-```
-
-### Deployment & operations
-
-```bash
-agentrt deploy deploy --target docker
-agentrt deploy status
-agentrt deploy logs --lines 100
-```
+| Capability | Operations | Needs Gateway |
+|------------|------------|:-------------:|
+| Project scaffolding | `init` | ✗ |
+| Component creation | `create agent\|tool\|plugin\|prompt\|skill` | ✗ |
+| Agent execution | `run` (interactive / one-shot) | ✓ |
+| Configuration | `config show\|set\|validate` | ✗ |
+| LLM providers | `llm list\|test\|cost` | ✓ |
+| Prompt templates | `prompt list\|show` | ✗ |
+| Marketplace | `market search\|install\|publish` | ✓ |
+| Runtime status | `deploy status` | ✓ |
+| Database migrations | `db status\|migrate\|rollback\|new` | ✗ |
 
 ## Build & Test
 
 ```bash
 cargo build --release
 cargo test
-./target/release/agentrt --help
 ```
+
+**Requirements:** Rust edition 2021 (stable toolchain). Dependencies:
+`agentrt-rs` (gateway protocol layer), `reqwest` 0.12 (HTTP), `tokio` 1 (async
+runtime), `serde` / `serde_json` / `serde_yaml` (serialization), `anyhow` (error
+handling), `colored` (terminal output).
 
 ## License
 

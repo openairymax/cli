@@ -23,7 +23,7 @@ pub struct GatewayClient {
 impl GatewayClient {
     pub fn new(base_url: &str) -> Result<Self> {
         let base_url = base_url.trim_end_matches('/').to_string();
-        let ua = format!("agentrt-cli/{}", env!("CARGO_PKG_VERSION"));
+        let ua = format!("agentrt-console/{}", env!("CARGO_PKG_VERSION"));
         let http = HttpClient::builder()
             .timeout(Duration::from_secs(30))
             .user_agent(ua.clone())

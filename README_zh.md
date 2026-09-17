@@ -1,182 +1,80 @@
 **语言:** [English](README.md) | 简体中文
 
-# Airymax CLI
+# Airymax Console
 
-[![Version](https://img.shields.io/badge/version-0.1.8-5a6b7e)](https://atomgit.com/openairymax/cli)
+[![Version](https://img.shields.io/badge/version-0.1.16-5a6b7e)](https://atomgit.com/openairymax/console)
 [![License](https://img.shields.io/badge/license-AGPL--3.0+Apache--2.0-4a90d9)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-stable-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org)
 
-> **状态（0.1.8）**：开发者运维命令行工具 —— 覆盖项目脚手架、组件创建、配置管理、
-> 市场搜索与安装、部署运维等开发者工作流。经 Gateway（HTTP / JSON-RPC 2.0）
-> 调用运行时服务，是独立的运行时租户。
+> **状态（0.1.16）**：Airymax 运行时的用户面控制台库 —— 命令面实现与网关协议客户端。
 >
 > [sdk](https://atomgit.com/openairymax/sdk) 管理仓聚合的叶子仓之一。
-> 独立 Rust 二进制 —— 通过 HTTP 与 Airymax Gateway 通信，不链接各语言 SDK（无 `agentrt-rs` 依赖）。
 
 ---
 
 ## 概述
 
-**Airymax CLI**（`agentrt`）是用 Rust 构建的命令行工具，用于在终端中操作 Airymax 运行时。它覆盖 Agent 全生命周期：项目脚手架、组件创建、Agent 执行、配置管理、LLM 提供商管理、Prompt 模板管理、市场搜索与安装、部署运维和数据库迁移。
+`agentrt-console` 是一个 Rust 库 crate，承担两项职责：
 
-运行时相关命令通过 HTTP（JSON-RPC 2.0）与 Airymax Gateway 通信，使用 CLI 自身的 `reqwest` 客户端。CLI 是独立运行时租户 —— 不依赖、也不链接各语言 SDK。
+- **命令面** —— 项目脚手架、组件创建、智能体执行、配置管理、LLM 提供商管理、
+  Prompt 模板管理、市场搜索与安装、运行时状态、数据库迁移。
+- **网关客户端** —— 非流式调用走 HTTP JSON-RPC 2.0；流式执行委派给 `agentrt-rs`
+  协议层，使传输、帧解码、工具跟踪与运行终止共用同一份实现。
 
-## 运行时通信
+本 crate 不定义二进制。命令行入口、参数解析与屏幕渲染由控制台前端承担，不属于本仓。
 
-CLI 通过 Gateway HTTP API（JSON-RPC 2.0）与运行时通信，直接使用自己的 HTTP 客户端（`src/client.rs`，基于 `reqwest`）。它不包装、也不消费语言 SDK：`Cargo.toml` 中没有 `agentrt-rs` 依赖。
+## 网关
 
-```
-agentrt <command>
-   └── src/client.rs — reqwest HTTP 客户端
-       ├── run      → 任务提交 / 智能体执行
-       ├── llm      → LLM 提供商管理
-       ├── market   → 市场搜索与安装
-       └── deploy   → 部署与状态查询
-```
+网关调用由调用方显式传入 base URL。非流式请求以 HTTP POST 发送 JSON-RPC 2.0 消息；
+流式执行经 `agentrt-rs` 事件流消费。
 
 ## 目录结构
 
 ```
-cli/
+console/
 ├── src/
-│   ├── main.rs              # 入口与 CLI 路由（clap）
-│   ├── client.rs            # Gateway HTTP 客户端
-│   ├── templates.rs         # 项目 / 组件模板生成
+│   ├── lib.rs               # crate 根
+│   ├── client.rs            # 网关协议客户端
+│   ├── templates.rs         # 项目 / 组件模板内容
 │   └── commands/
 │       ├── mod.rs           # 命令模块导出
-│       ├── init.rs          # agentrt init — 项目脚手架
-│       ├── create.rs        # agentrt create — agent/tool/plugin/prompt/skill
-│       ├── run.rs           # agentrt run — 运行智能体（交互 / 单次）
-│       ├── config_cmd.rs    # agentrt config — 配置管理
-│       ├── llm.rs           # agentrt llm — LLM 提供商管理
-│       ├── prompt.rs        # agentrt prompt — Prompt 模板管理
-│       ├── market.rs        # agentrt market — 市场搜索与安装
-│       ├── deploy.rs        # agentrt deploy — 部署与状态查询
-│       └── db.rs            # agentrt db — 数据库迁移管理
-├── Cargo.toml               # crate 清单（agentrt-cli，二进制：agentrt）
+│       ├── init.rs          # 项目脚手架
+│       ├── create.rs        # agent / tool / plugin / prompt / skill
+│       ├── run.rs           # 智能体执行（交互 / 单次）
+│       ├── config_cmd.rs    # 配置管理
+│       ├── llm.rs           # LLM 提供商管理
+│       ├── prompt.rs        # Prompt 模板管理
+│       ├── market.rs        # 市场搜索与安装
+│       ├── deploy.rs        # 运行时状态
+│       └── db.rs            # 数据库迁移
+├── Cargo.toml               # crate 清单（agentrt-console，库）
 └── README.md                # 本文件
 ```
 
-## 前置条件
+## 命令面
 
-大部分命令都是运行中 AgentRT 运行时的客户端，请先安装运行时：
-
-```bash
-curl -fsSL "https://api.atomgit.com/api/v5/repos/openairymax/agentrt/contents/scripts/install.sh?ref=main" | python3 -c 'import json,sys,base64;sys.stdout.buffer.write(base64.b64decode(json.load(sys.stdin)["content"]))' | bash
-```
-
-（兼容入口 `https://atomgit.com/openairymax/agentrt/releases/download/latest/install.sh` 也可用。）然后启动网关，例如 `airymaxrt start`。
-
-### 网关地址
-
-网关地址按以下顺序解析：
-
-1. `--gateway-url <url>` 命令行参数；
-2. `AGENTRT_GATEWAY_URL` 环境变量；
-3. 内置默认值 `http://localhost:8080`。
-
-## 命令一览
-
-| 命令 | 说明 | 需 Gateway |
+| 能力 | 操作 | 需 Gateway |
 |------|------|:----------:|
-| `agentrt init <name>` | 初始化新的 Airymax 项目 | ✗ |
-| `agentrt create agent\|tool\|plugin\|prompt\|skill <name>` | 创建组件脚手架 | ✗ |
-| `agentrt run [prompt]` | 运行智能体（交互 / 单次） | ✓ |
-| `agentrt config show\|set\|validate\|reload` | 配置管理 | △ |
-| `agentrt llm list\|test\|cost` | LLM 提供商管理 | ✓ |
-| `agentrt prompt list\|show\|tune\|ab-test` | Prompt 模板管理 | ✗ |
-| `agentrt market search\|install\|publish` | 市场搜索与安装 | ✓ |
-| `agentrt deploy deploy\|status\|logs` | 部署与运维 | ✓ |
-| `agentrt db status\|migrate\|rollback\|new` | 数据库迁移管理 | ✗ |
-| `agentrt completion <shell>` | 生成 Shell 补全脚本 | ✗ |
-
-△ 标记 `config` 命令组：仅 `config reload` 作用于运行中的网关，其余子命令（`show` / `set` / `validate`）在本地配置上操作。
-
-## 安装
-
-### 从源码构建
-
-```bash
-cd cli
-cargo build --release
-# 二进制：./target/release/agentrt
-```
-
-也可以安装到 cargo bin 目录：
-
-```bash
-cargo install --path .
-```
-
-### Shell 补全
-
-```bash
-source <(agentrt completion bash)
-```
-
-**环境要求：** Rust edition 2021（stable 工具链）。运行时依赖：`clap` 4.5（CLI 框架）、`reqwest` 0.12（HTTP）、`tokio` 1（异步运行时）、`serde` / `serde_json` / `serde_yaml`（序列化）、`thiserror` / `anyhow`（错误）、`colored` / `indicatif`（终端输出）、`chrono`、`dirs`、`tempfile`、`url`、`urlencoding`、`clap_complete`。
-
-## 使用说明
-
-### 项目脚手架
-
-```bash
-agentrt init my-agent-project
-cd my-agent-project
-
-agentrt create agent my-agent
-agentrt create tool web-scraper
-agentrt create plugin logging-plugin
-```
-
-### 运行智能体
-
-```bash
-# 交互模式
-agentrt run
-
-# 单次执行
-agentrt run "分析这份销售数据"
-
-# 指定智能体配置和模型
-agentrt run --agent-file agents/custom.agent.yaml --model gpt-4
-```
-
-`--agent-file` 默认值为 `agents/main.agent.yaml`。
-
-### 配置管理
-
-```bash
-agentrt config show
-agentrt config set llm.providers.openai.api_key sk-xxxx
-agentrt config validate
-agentrt config reload
-```
-
-### Prompt 模板管理
-
-```bash
-agentrt prompt list
-agentrt prompt show intent_classify
-agentrt prompt tune intent_classify --dataset ./data.jsonl
-agentrt prompt ab-test intent_classify --baseline v1 --candidate v2
-```
-
-### 部署运维
-
-```bash
-agentrt deploy deploy --target docker
-agentrt deploy status
-agentrt deploy logs --lines 100
-```
+| 项目脚手架 | `init` | ✗ |
+| 组件创建 | `create agent\|tool\|plugin\|prompt\|skill` | ✗ |
+| 智能体执行 | `run`（交互 / 单次） | ✓ |
+| 配置管理 | `config show\|set\|validate` | ✗ |
+| LLM 提供商 | `llm list\|test\|cost` | ✓ |
+| Prompt 模板 | `prompt list\|show` | ✗ |
+| 市场 | `market search\|install\|publish` | ✓ |
+| 运行时状态 | `deploy status` | ✓ |
+| 数据库迁移 | `db status\|migrate\|rollback\|new` | ✗ |
 
 ## 构建与测试
 
 ```bash
 cargo build --release
 cargo test
-./target/release/agentrt --help
 ```
+
+**环境要求：** Rust edition 2021（stable 工具链）。依赖：`agentrt-rs`（网关协议层）、
+`reqwest` 0.12（HTTP）、`tokio` 1（异步运行时）、`serde` / `serde_json` / `serde_yaml`
+（序列化）、`anyhow`（错误处理）、`colored`（终端输出）。
 
 ## 许可证
 
