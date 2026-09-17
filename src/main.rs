@@ -6,8 +6,8 @@
 // AgentRT CLI - Main entry point
 //
 // All commands that interact with the AgentRT runtime communicate
-// through the gateway HTTP API. Local-only commands (init, create)
-// do not require a running gateway.
+// through the gateway JSON-RPC capability surface (A-IPC). Local-only
+// commands (init, create) do not require a running gateway.
 
 mod client;
 mod commands;
@@ -91,7 +91,7 @@ enum Commands {
         subcommand: MarketCommand,
     },
 
-    /// (*) Deployment and status operations
+    /// (*) Show AgentRT runtime status
     Deploy {
         #[command(subcommand)]
         subcommand: DeployCommand,
@@ -153,8 +153,6 @@ enum ConfigCommand {
     },
     /// Validate agentrt.yaml configuration
     Validate,
-    /// (*) Reload configuration on running gateway
-    Reload,
 }
 
 #[derive(Subcommand)]
@@ -179,25 +177,6 @@ enum PromptCommand {
         /// Template name
         name: String,
     },
-    /// Tune a Prompt template
-    Tune {
-        /// Template name
-        name: String,
-        /// Path to evaluation dataset
-        #[arg(long)]
-        dataset: Option<String>,
-    },
-    /// A/B test two Prompt versions
-    AbTest {
-        /// Template name
-        name: String,
-        /// Baseline version
-        #[arg(long)]
-        baseline: String,
-        /// Candidate version
-        #[arg(long)]
-        candidate: String,
-    },
 }
 
 #[derive(Subcommand)]
@@ -218,20 +197,8 @@ enum MarketCommand {
 
 #[derive(Subcommand)]
 enum DeployCommand {
-    /// (*) Deploy to production
-    Deploy {
-        /// Deployment target
-        #[arg(short, long, default_value = "docker")]
-        target: String,
-    },
     /// (*) Show AgentRT runtime status
     Status,
-    /// (*) Show AgentRT runtime logs
-    Logs {
-        /// Number of log lines to show
-        #[arg(short, long, default_value = "50")]
-        lines: u32,
-    },
 }
 
 #[derive(Subcommand)]
@@ -290,9 +257,6 @@ async fn main() -> anyhow::Result<()> {
             ConfigCommand::Show => commands::config_cmd::show()?,
             ConfigCommand::Set { key, value } => commands::config_cmd::set(&key, &value)?,
             ConfigCommand::Validate => commands::config_cmd::validate()?,
-            ConfigCommand::Reload => {
-                commands::config_cmd::reload(&cli.gateway_url).await?;
-            }
         },
         Commands::Llm { subcommand } => match subcommand {
             LlmCommand::List => commands::llm::list(&cli.gateway_url).await?,
@@ -304,16 +268,6 @@ async fn main() -> anyhow::Result<()> {
         Commands::Prompt { subcommand } => match subcommand {
             PromptCommand::List => commands::prompt::list()?,
             PromptCommand::Show { name } => commands::prompt::show(&name)?,
-            PromptCommand::Tune { name, dataset } => {
-                commands::prompt::tune(&name, dataset)?;
-            }
-            PromptCommand::AbTest {
-                name,
-                baseline,
-                candidate,
-            } => {
-                commands::prompt::ab_test(&name, &baseline, &candidate)?;
-            }
         },
         Commands::Market { subcommand } => match subcommand {
             MarketCommand::Search { keyword } => {
@@ -327,14 +281,8 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         Commands::Deploy { subcommand } => match subcommand {
-            DeployCommand::Deploy { target } => {
-                commands::deploy::deploy(&cli.gateway_url, &target).await?;
-            }
             DeployCommand::Status => {
                 commands::deploy::status(&cli.gateway_url).await?;
-            }
-            DeployCommand::Logs { lines } => {
-                commands::deploy::logs(&cli.gateway_url, lines).await?;
             }
         },
         Commands::Db { subcommand } => match subcommand {

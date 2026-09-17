@@ -3,121 +3,90 @@
 
 // Copyright (c) 2026 SPHARX Ltd. All Rights Reserved.
 //
-// CLI command: agentrt deploy
+// CLI command: agentrt deploy status
 //
-// Deployment, status, and log viewing through the gateway.
+// Runtime status inspection through the gateway info capabilities.
 
 use anyhow::Result;
 use colored::Colorize;
 
-use crate::client::{DeployStatusResponse, GatewayClient, LogEntry};
+use crate::client::{GatewayClient, InfoHardware};
 
-/// Deploy to production.
-pub async fn deploy(gateway_url: &str, target: &str) -> Result<()> {
-    let client = GatewayClient::new(gateway_url)?;
-
-    println!("{} Deploying to target: {}", "🚀".blue(), target.cyan());
-
-    let request = serde_json::json!({
-        "target": target,
-    });
-
-    match client
-        .post::<serde_json::Value>("/api/v1/deploy", &request)
-        .await
-    {
-        Ok(resp) => {
-            println!(
-                "{} Deployment initiated: {}",
-                "✓".green(),
-                serde_json::to_string_pretty(&resp).unwrap_or_default()
-            );
-            println!("  Run 'agentrt deploy status' to check deployment progress.");
-        }
-        Err(e) => {
-            anyhow::bail!("Deployment failed: {}", e);
-        }
-    }
-
-    Ok(())
-}
-
-/// Show AgentRT runtime status.
+/// Show AgentRT runtime status（info.system + info.health + info.hardware）。
 pub async fn status(gateway_url: &str) -> Result<()> {
     let client = GatewayClient::new(gateway_url)?;
 
+    let sys = client.info_system().await?;
+    let health = client.info_health().await?;
+    let hw = client.info_hardware().await?;
+
     println!("{} AgentRT Status:", "📊".blue().bold());
     println!();
-
-    let status: DeployStatusResponse = client.get("/api/v1/health").await?;
-
-    println!("  Runtime:     {} {}", status.status, status.version);
-    if let (Some(mem), Some(cpu)) = (status.memory_usage_mb, status.cpu_percent) {
-        println!("  Memory:      {:.1} MB", mem);
-        println!("  CPU:         {:.1}%", cpu);
+    println!("  Runtime:     {} ({})", sys.platform, sys.hostname);
+    if !sys.kernel_version.is_empty() {
+        println!("  Kernel:      {}", sys.kernel_version);
     }
-    println!();
-
-    if !status.daemons.is_empty() {
-        println!("  Daemons:");
-        println!("  {:<20} {:<10} {:<8} {:<10} Uptime", "Name", "Status", "PID", "Port");
-        println!("  {:-<20} {:-<10} {:-<8} {:-<10} {:-<10}", "", "", "", "", "");
-
-        for d in &status.daemons {
-            let status_icon = if d.status == "running" { "✓".green() } else { "✗".red() };
-            let uptime = d.uptime_seconds.map(format_uptime).unwrap_or_default();
-            let port = d.port.map(|p| p.to_string()).unwrap_or_else(|| "-".to_string());
-
-            println!(
-                "  {:<20} {:<10} {:<8} {:<10} {}",
-                d.name,
-                format!("{} {}", status_icon, d.status),
-                d.pid,
-                port,
-                uptime
-            );
-        }
+    println!(
+        "  Health:      {}{} | uptime {}",
+        health.status,
+        if health.running { ", running" } else { ", not running" },
+        format_uptime(health.uptime_s as u64)
+    );
+    if health.collecting {
+        println!("  Collector:   active (staleness {:.0}s)", health.staleness_sec);
     }
+    if let Some(snap) = &sys.system {
+        println!();
+        println!("  CPU:         {:.1}% of {} cores", snap.cpu_usage_pct, snap.cpu_cores);
+        println!(
+            "  Memory:      {:.1}% used ({}/ {})",
+            snap.memory_usage_pct,
+            kb_human(snap.used_memory_kb),
+            kb_human(snap.total_memory_kb)
+        );
+        println!(
+            "  Disk:        {:.1}% used ({}/ {} free)",
+            snap.disk_usage_pct,
+            kb_human(snap.disk_free_kb),
+            kb_human(snap.disk_total_kb)
+        );
+        println!("  OS uptime:   {}", format_uptime(snap.uptime_sec as u64));
+    }
+    print_hardware(&hw);
 
     Ok(())
 }
 
-/// Show runtime logs.
-pub async fn logs(gateway_url: &str, lines: u32) -> Result<()> {
-    let client = GatewayClient::new(gateway_url)?;
-
-    let logs: Vec<LogEntry> = client
-        .get(&format!("/api/v1/logs?lines={}", lines))
-        .await?;
-
-    println!("{} Recent Logs ({} lines):", "📜".blue().bold(), lines);
-    println!();
-
-    for entry in &logs {
-        let level_color = match entry.level.as_str() {
-            "ERROR" => "ERROR".red().bold(),
-            "WARN" => "WARN".yellow().bold(),
-            "INFO" => "INFO".normal(),
-            "DEBUG" => "DEBUG".dimmed(),
-            _ => entry.level.as_str().normal(),
-        };
-
-        let daemon_tag = if let Some(d) = &entry.daemon {
-            format!("[{}]", d.cyan())
-        } else {
-            String::new()
-        };
-
-        println!(
-            "{} {} {} {}",
-            entry.timestamp.dimmed(),
-            level_color,
-            daemon_tag,
-            entry.message
-        );
+fn print_hardware(hw: &InfoHardware) {
+    let mut line = String::from("  Hardware:    ");
+    if let Some(count) = hw.cpu_count {
+        line.push_str(&format!("{count} cores"));
     }
+    if let (Some(total), Some(avail)) = (hw.mem_total_kib, hw.mem_avail_kib) {
+        line.push_str(&format!(
+            ", {}GiB memory ({}GiB free)",
+            total / 1048576.0,
+            avail / 1048576.0
+        ));
+    }
+    if let Some(profile) = &hw.profile {
+        line.push_str(&format!(", profile {profile}"));
+    }
+    println!();
+    println!("{line}");
+    if hw.accel_present.unwrap_or(false) {
+        let model = hw.accel_model.as_deref().unwrap_or("unknown");
+        println!("  Accel:       {} x {model}", hw.accel_count.unwrap_or(0));
+    }
+}
 
-    Ok(())
+fn kb_human(kb: f64) -> String {
+    let gib = kb / 1048576.0;
+    if gib >= 1.0 {
+        format!("{gib:.1}G")
+    } else {
+        format!("{:.0}M", kb / 1024.0)
+    }
 }
 
 fn format_uptime(seconds: u64) -> String {

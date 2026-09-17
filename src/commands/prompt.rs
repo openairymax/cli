@@ -5,7 +5,7 @@
 //
 // CLI command: agentrt prompt
 //
-// Prompt template listing, viewing, tuning, and A/B testing.
+// Local prompt template listing and viewing.
 
 use anyhow::{Context, Result};
 use colored::Colorize;
@@ -35,8 +35,10 @@ pub fn list() -> Result<()> {
         let entry = entry?;
         let path = entry.path();
         if path.extension().is_some_and(|ext| ext == "yaml" || ext == "yml") {
-            let name = path.file_stem().expect("YAML file must have a stem").to_string_lossy();
-            // Read first few lines to get description
+            let Some(stem) = path.file_stem() else {
+                continue;
+            };
+            let name = stem.to_string_lossy();
             let description = get_description(&path);
             println!("  {} {}  {}", "•".cyan(), name.cyan().bold(), description);
             found = true;
@@ -62,38 +64,6 @@ pub fn show(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Tune a Prompt template.
-pub fn tune(name: &str, dataset: Option<String>) -> Result<()> {
-    let path = find_prompt(name)?;
-    println!("{} Tuning prompt: {}", "🎯".blue(), name.cyan());
-
-    if let Some(ds) = &dataset {
-        println!("  Dataset: {}", ds);
-    } else {
-        println!("  {} No dataset specified. Use --dataset flag for evaluation.",
-            "⚠".yellow());
-    }
-
-    println!();
-    println!("  {} Tuning engine not yet connected to gateway.", "ℹ".dimmed());
-    println!("    Prompt: {}", path.display());
-    println!("    Template is ready for manual tuning or future automated optimization.");
-
-    Ok(())
-}
-
-/// A/B test two Prompt versions.
-pub fn ab_test(name: &str, baseline: &str, candidate: &str) -> Result<()> {
-    println!("{} A/B Test: {}", "🧪".blue(), name.cyan());
-    println!("  Baseline:  {}", baseline.yellow());
-    println!("  Candidate: {}", candidate.green());
-    println!();
-    println!("  {} A/B testing engine not yet connected to gateway.", "ℹ".dimmed());
-    println!("    Compare your templates manually or use the ecosystem/prompts/tuner/ tools.");
-
-    Ok(())
-}
-
 fn find_prompt(name: &str) -> Result<std::path::PathBuf> {
     for ext in &["yaml", "yml"] {
         let path = Path::new("prompts").join(format!("{}.{}", name, ext));
@@ -104,7 +74,7 @@ fn find_prompt(name: &str) -> Result<std::path::PathBuf> {
     anyhow::bail!("Prompt template '{}' not found in prompts/ directory.", name)
 }
 
-fn get_description(path: &std::path::Path) -> String {
+fn get_description(path: &Path) -> String {
     match fs::read_to_string(path) {
         Ok(content) => {
             for line in content.lines() {

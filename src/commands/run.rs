@@ -10,7 +10,7 @@
 use anyhow::Result;
 use colored::Colorize;
 
-use crate::client::{GatewayClient, RunRequest, RunResponse};
+use crate::client::{GatewayClient, RunResponse};
 
 /// Execute an agent run through the gateway.
 pub async fn execute(
@@ -21,7 +21,6 @@ pub async fn execute(
 ) -> Result<()> {
     let client = GatewayClient::new(gateway_url)?;
 
-    // Check gateway health
     match client.health_check().await {
         Ok(health) => {
             println!(
@@ -39,40 +38,25 @@ pub async fn execute(
         }
     }
 
-    let interactive = prompt.is_none();
-    let request = RunRequest {
-        prompt: prompt.clone(),
-        agent_file: agent_file.to_string(),
-        model,
-        interactive,
-    };
+    match prompt {
+        Some(text) => {
+            println!("{} Sending prompt: {}", "▶".blue().bold(), text);
+            println!();
 
-    if interactive {
-        println!("{} Starting interactive session...", "▶".blue().bold());
-        println!("  Agent: {}", agent_file);
-        println!("  Type your prompts or Ctrl+C to exit.");
-        println!();
-        // Interactive mode: read from stdin in a loop
-        run_interactive(&client, agent_file).await?;
-    } else {
-        let prompt_text = prompt.as_deref().unwrap_or("");
-        println!("{} Sending prompt: {}", "▶".blue().bold(), prompt_text);
-        println!();
+            let response = client
+                .agent_run(&text, agent_file, model.as_deref(), None, None)
+                .await?;
 
-        let response: RunResponse = client
-            .post("/api/v1/agent/run", &request)
-            .await?;
-
-        println!("{}", response.response);
-        println!();
-        if let (Some(tokens), Some(cost)) = (response.tokens_used, response.cost_usd) {
-            println!(
-                "{} Tokens: {} | Cost: ${:.6} | Session: {}",
-                "ℹ".dimmed(),
-                tokens,
-                cost,
-                response.session_id
-            );
+            println!("{}", response.response);
+            println!();
+            print_run_meta(&response);
+        }
+        None => {
+            println!("{} Starting interactive session...", "▶".blue().bold());
+            println!("  Agent: {}", agent_file);
+            println!("  Type your prompts or Ctrl+C to exit.");
+            println!();
+            run_interactive(&client, agent_file, model.as_deref()).await?;
         }
     }
 
@@ -80,15 +64,19 @@ pub async fn execute(
 }
 
 /// Run in interactive mode, reading user input in a loop.
-async fn run_interactive(client: &GatewayClient, agent_file: &str) -> Result<()> {
+async fn run_interactive(
+    client: &GatewayClient,
+    agent_file: &str,
+    model: Option<&str>,
+) -> Result<()> {
+    let session_id = new_session_id();
     loop {
-        // Print prompt
         print!("{} ", ">".cyan().bold());
         let _ = std::io::Write::flush(&mut std::io::stdout());
 
         let mut input = String::new();
         match std::io::stdin().read_line(&mut input) {
-            Ok(0) => break, // EOF
+            Ok(0) => break,
             Ok(_) => {}
             Err(e) => {
                 eprintln!("{} Error reading input: {}", "✗".red(), e);
@@ -96,7 +84,7 @@ async fn run_interactive(client: &GatewayClient, agent_file: &str) -> Result<()>
             }
         }
 
-        let input = input.trim().to_string();
+        let input = input.trim();
         if input.is_empty() {
             continue;
         }
@@ -105,19 +93,25 @@ async fn run_interactive(client: &GatewayClient, agent_file: &str) -> Result<()>
             break;
         }
 
-        let request = RunRequest {
-            prompt: Some(input),
-            agent_file: agent_file.to_string(),
-            model: None,
-            interactive: true,
-        };
+        let result = client
+            .agent_run_stream(
+                input,
+                agent_file,
+                model,
+                &session_id,
+                |delta| {
+                    print!("{delta}");
+                    let _ = std::io::Write::flush(&mut std::io::stdout());
+                },
+                |note| println!("\n  {} {}", "⚙".dimmed(), note),
+            )
+            .await;
 
-        match client.post::<RunResponse>("/api/v1/agent/run", &request).await {
+        println!();
+        match result {
             Ok(response) => {
                 println!();
-                println!("{}", response.response);
-                println!();
-                // session_id tracked by gateway
+                print_run_meta(&response);
             }
             Err(e) => {
                 eprintln!("{} Gateway error: {}", "✗".red(), e);
@@ -126,4 +120,25 @@ async fn run_interactive(client: &GatewayClient, agent_file: &str) -> Result<()>
     }
 
     Ok(())
+}
+
+fn print_run_meta(response: &RunResponse) {
+    let mut parts = Vec::new();
+    if let Some(tokens) = response.tokens_used {
+        parts.push(format!("Tokens: {tokens}"));
+    }
+    if let Some(cost) = response.cost_usd {
+        parts.push(format!("Cost: ${cost:.6}"));
+    }
+    parts.push(format!("Session: {}", response.session_id));
+    println!("{} {}", "ℹ".dimmed(), parts.join(" | "));
+}
+
+/// 引擎契约：调用方自带会话 id 须带 "sess_" 前缀，引擎原样采用。
+fn new_session_id() -> String {
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    format!("sess_cli_{ms:x}")
 }

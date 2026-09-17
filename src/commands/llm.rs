@@ -10,7 +10,7 @@
 use anyhow::Result;
 use colored::Colorize;
 
-use crate::client::{CostResponse, GatewayClient, LlmTestRequest};
+use crate::client::{GatewayClient, LlmModelEntry};
 
 /// List configured LLM models（经 gateway llm.list_models 转发 llm_d registry）。
 pub async fn list(gateway_url: &str) -> Result<()> {
@@ -35,7 +35,7 @@ pub async fn list(gateway_url: &str) -> Result<()> {
     }
     println!();
 
-    let mut by_provider: std::collections::BTreeMap<&str, Vec<&crate::client::LlmModelEntry>> =
+    let mut by_provider: std::collections::BTreeMap<&str, Vec<&LlmModelEntry>> =
         std::collections::BTreeMap::new();
     for m in &list.models {
         by_provider.entry(m.provider.as_str()).or_default().push(m);
@@ -58,27 +58,34 @@ pub async fn list(gateway_url: &str) -> Result<()> {
     Ok(())
 }
 
-/// Test provider connectivity.
+/// Test provider connectivity（llm.list_models 定位模型 + llm.complete 探针）。
 pub async fn test(gateway_url: &str, provider: &str) -> Result<()> {
     let client = GatewayClient::new(gateway_url)?;
 
     println!("{} Testing provider: {}...", "🔍".yellow(), provider.cyan());
 
-    let request = LlmTestRequest {
-        provider: provider.to_string(),
-    };
+    let list = client.llm_list_models().await?;
+    let model = list
+        .models
+        .iter()
+        .find(|m| m.provider.eq_ignore_ascii_case(provider))
+        .map(|m| m.name.clone())
+        .ok_or_else(|| anyhow::anyhow!("Provider '{}' has no configured models", provider))?;
 
-    match client
-        .post::<serde_json::Value>("/api/v1/llm/test", &request)
-        .await
-    {
-        Ok(resp) => {
+    match client.llm_test(Some(&model)).await {
+        Ok(probe) => {
             println!(
-                "{} Provider '{}' is working: {}",
+                "{} Provider '{}' is working (model: {})",
                 "✓".green(),
                 provider,
-                serde_json::to_string_pretty(&resp).unwrap_or_default()
+                probe.model.as_deref().unwrap_or(&model)
             );
+            println!("  Reply: {}", probe.content);
+            println!(
+                "  Tokens: {} prompt / {} completion / {} total",
+                probe.prompt_tokens, probe.completion_tokens, probe.total_tokens
+            );
+            println!("  Cost: ${:.6}", probe.cost_usd);
         }
         Err(e) => {
             eprintln!("{} Provider '{}' test failed: {}", "✗".red(), provider, e);
@@ -88,30 +95,42 @@ pub async fn test(gateway_url: &str, provider: &str) -> Result<()> {
     Ok(())
 }
 
-/// Show LLM usage costs.
+/// Show LLM usage costs and semantic cache stats（llm.get_stats）。
 pub async fn cost(gateway_url: &str) -> Result<()> {
     let client = GatewayClient::new(gateway_url)?;
 
-    let costs: CostResponse = client.get("/api/v1/llm/cost").await?;
+    let stats = client.llm_get_stats().await?;
 
-    println!("{} LLM Usage Costs:", "💰".blue().bold());
-    println!();
-    println!("  Total tokens:   {}", costs.total_tokens);
-    println!("  Total cost:      ${:.6}", costs.total_cost_usd);
+    println!("{} LLM Usage & Cache:", "💰".blue().bold());
     println!();
 
-    if let Some(by_provider) = &costs.by_provider {
-        if !by_provider.is_empty() {
-            println!("  {:<20} {:<15} Cost (USD)", "Provider", "Tokens");
-            println!("  {:-<20} {:-<15} {:-<15}", "", "", "");
-            for pc in by_provider {
-                println!(
-                    "  {:<20} {:<15} ${:.6}",
-                    pc.provider, pc.tokens, pc.cost_usd
-                );
-            }
+    if stats.cost.models.is_empty() {
+        println!("  No usage recorded yet.");
+    } else {
+        println!("  {:<28} {:>12} {:>12} {:>12}", "Model", "Prompt", "Completion", "Cost (USD)");
+        println!("  {:-<28} {:-<12} {:-<12} {:-<12}", "", "", "", "");
+        let mut total = 0.0f64;
+        for mc in &stats.cost.models {
+            println!(
+                "  {:<28} {:>12} {:>12} {:>12.6}",
+                mc.model, mc.prompt_tokens, mc.completion_tokens, mc.cost_usd
+            );
+            total += mc.cost_usd;
         }
+        println!();
+        println!("  Total cost: ${total:.6}");
     }
+
+    println!();
+    println!(
+        "  Cache: {}/{} entries | hits {} / misses {} | hit rate {:.1}% | evictions {}",
+        stats.llm_cache_size,
+        stats.llm_cache_capacity,
+        stats.llm_cache_hits,
+        stats.llm_cache_misses,
+        stats.llm_cache_hit_rate * 100.0,
+        stats.llm_cache_evictions
+    );
 
     Ok(())
 }

@@ -5,14 +5,12 @@
 //
 // CLI command: agentrt market
 //
-// Search, install, and publish through the OpenLab Markets gateway.
+// Search, install, and publish through the gateway market capabilities.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use colored::Colorize;
 
-use crate::client::{
-    GatewayClient, MarketInstallRequest, MarketInstallResult, MarketSearchResult,
-};
+use crate::client::GatewayClient;
 
 /// Search the agent marketplace.
 pub async fn search(gateway_url: &str, keyword: &str) -> Result<()> {
@@ -21,32 +19,32 @@ pub async fn search(gateway_url: &str, keyword: &str) -> Result<()> {
     println!("{} Searching marketplace for: {}", "🔍".blue(), keyword.cyan());
     println!();
 
-    let results: Vec<MarketSearchResult> = client
-        .get(&format!("/api/v1/market/search?q={}", urlencoding::encode(keyword)))
-        .await?;
+    let results = client.market_search(keyword).await?;
 
     if results.is_empty() {
-        println!("  No results found for '{}'.", keyword);
-        println!("  Try a different keyword or browse the marketplace at https://openlab.spharx.com");
+        println!("  No results found for '{keyword}'.");
         return Ok(());
     }
 
-    println!("  {:<25} {:<10} {:<10} Author", "Name", "Version", "Downloads");
-    println!("  {:-<25} {:-<10} {:-<10} {:-<20}", "", "", "", "");
+    println!("  {:<28} {:<10} {:<16} Installed", "ID", "Version", "Author");
+    println!("  {:-<28} {:-<10} {:-<16} {:-<10}", "", "", "", "");
 
     for r in &results {
+        let installed = if r.installed { "✓".green() } else { "-".dimmed() };
         println!(
-            "  {:<25} {:<10} {:<10} {}",
-            r.name.cyan(),
+            "  {:<28} {:<10} {:<16} {}",
+            r.agent_id.cyan(),
             r.version,
-            r.downloads,
-            r.author
+            r.author,
+            installed
         );
-        println!("    {}", r.description);
+        if !r.description.is_empty() {
+            println!("    {} — {}", r.name.dimmed(), r.description);
+        }
     }
 
     println!();
-    println!("  To install: agentrt install <package>");
+    println!("  To install: agentrt market install <agent_id>");
 
     Ok(())
 }
@@ -57,54 +55,56 @@ pub async fn install(gateway_url: &str, package: &str) -> Result<()> {
 
     println!("{} Installing: {}", "📦".blue(), package.cyan());
 
-    let request = MarketInstallRequest {
-        package: package.to_string(),
-    };
+    let result = client.market_install(package, "latest").await?;
 
-    match client
-        .post::<MarketInstallResult>("/api/v1/market/install", &request)
-        .await
-    {
-        Ok(result) => {
-            println!("{} {}", "✓".green(), result.message);
-            if let Some(path) = &result.installed_path {
-                println!("  Installed to: {}", path.cyan());
-            }
+    if result.status == "installed" {
+        println!(
+            "{} Installed {}",
+            "✓".green(),
+            result.installed_version.as_deref().unwrap_or(package)
+        );
+        if let Some(id) = &result.agent_id {
+            println!("  Agent ID: {}", id.cyan());
         }
-        Err(e) => {
-            anyhow::bail!("Failed to install '{}': {}", package, e);
+        if let Some(path) = &result.install_path {
+            println!("  Installed to: {}", path.cyan());
         }
+    } else {
+        anyhow::bail!(
+            "Failed to install '{package}': {}",
+            result.message.as_deref().unwrap_or("unknown error")
+        );
     }
 
     Ok(())
 }
 
-/// Publish to OpenLab Markets.
+/// Publish the local agent manifest to the marketplace.
 pub async fn publish(gateway_url: &str) -> Result<()> {
     let client = GatewayClient::new(gateway_url)?;
 
-    println!("{} Publishing to OpenLab Markets...", "📤".blue());
-
-    // Check for agentrt.yaml
-    if !std::path::Path::new("configs/agentrt.yaml").exists() {
-        anyhow::bail!("No agentrt.yaml found. Run 'agentrt init' first.");
+    let manifest = std::fs::read_to_string("agents/main.agent.yaml")
+        .context("No agents/main.agent.yaml found. Run 'agentrt init' first.")?;
+    let spec: serde_yaml::Value = serde_yaml::from_str(&manifest)
+        .context("Failed to parse agents/main.agent.yaml")?;
+    let agent_id = spec
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let version = spec
+        .get("version")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    if agent_id.is_empty() {
+        anyhow::bail!("agents/main.agent.yaml is missing the 'name' field");
     }
 
-    match client
-        .post::<serde_json::Value>("/api/v1/market/publish", &serde_json::json!({}))
-        .await
-    {
-        Ok(resp) => {
-            println!(
-                "{} Published successfully: {}",
-                "✓".green(),
-                serde_json::to_string_pretty(&resp).unwrap_or_default()
-            );
-        }
-        Err(e) => {
-            anyhow::bail!("Failed to publish: {}", e);
-        }
-    }
+    println!("{} Publishing {} (v{})...", "📤".blue(), agent_id.cyan(), version);
+
+    let resp = client.market_publish(agent_id, version).await?;
+
+    println!("{} Published successfully", "✓".green());
+    println!("{}", serde_json::to_string_pretty(&resp).unwrap_or_default());
 
     Ok(())
 }

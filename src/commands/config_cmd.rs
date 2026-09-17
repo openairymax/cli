@@ -5,13 +5,11 @@
 //
 // CLI command: agentrt config
 //
-// Local config management plus gateway reload.
+// Local configuration management.
 
 use anyhow::{Context, Result};
 use colored::Colorize;
 use std::fs;
-
-use crate::client::GatewayClient;
 
 const CONFIG_FILE: &str = "agentrt.yaml";
 const CONFIG_FILE_ALT: &str = "configs/agentrt.yaml";
@@ -61,7 +59,6 @@ pub fn set(key: &str, value: &str) -> Result<()> {
         .with_context(|| format!("Failed to write {}", path.display()))?;
 
     println!("{} Configuration updated.", "✓".green());
-    println!("  Run 'agentrt config reload' to apply changes to running gateway.");
     Ok(())
 }
 
@@ -99,27 +96,6 @@ pub fn validate() -> Result<()> {
             println!("  - {}", error.red());
         }
         anyhow::bail!("Configuration validation failed with {} error(s)", errors.len());
-    }
-
-    Ok(())
-}
-
-/// Reload configuration on a running gateway.
-pub async fn reload(gateway_url: &str) -> Result<()> {
-    let client = GatewayClient::new(gateway_url)?;
-    println!("{} Reloading configuration...", "⟳".blue());
-
-    match client.post::<serde_json::Value>("/api/v1/config/reload", &serde_json::json!({})).await {
-        Ok(resp) => {
-            println!(
-                "{} Configuration reloaded: {}",
-                "✓".green(),
-                serde_json::to_string_pretty(&resp).unwrap_or_default()
-            );
-        }
-        Err(e) => {
-            anyhow::bail!("Failed to reload configuration: {}", e);
-        }
     }
 
     Ok(())
